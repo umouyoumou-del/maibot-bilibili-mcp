@@ -2,7 +2,7 @@
 # MaiBot 插件运行时会自动补齐缺失的默认配置。
 [plugin]
 enabled = true
-config_version = "0.5.0"
+config_version = "0.6.0"
 
 [bilibili]
 # 仅在 data_source = "bilibili" 时使用；可选 B站 Cookie 凭证文件。
@@ -35,8 +35,15 @@ search_per_keyword = 6
 max_age_days = 7
 max_videos = 6
 max_highlights = 3
+# 评论区是模型写回想时的重要材料
 include_comments = true
-comments_per_video = 8
+comments_per_video = 12
+# hot = 按热度；new = 按最新
+comment_sort = "hot"
+# 是否把热评下的楼中楼回复一起交给模型
+include_comment_replies = true
+# 模型最多输出几条评论区观察
+comment_digest_max_items = 4
 subtitle_max_chars = 6000
 total_material_chars = 24000
 request_interval_seconds = 0.25

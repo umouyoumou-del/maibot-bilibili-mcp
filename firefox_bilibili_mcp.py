@@ -204,6 +204,8 @@ class FirefoxBilibiliConnection:
             return await self._bili_comments(
                 str(args.get("bvid") or ""),
                 int(args.get("num") or 30),
+                sort=str(args.get("sort") or "hot"),
+                include_replies=bool(args.get("include_replies", True)),
             )
         return {"error": f"未知的 Firefox 刷B站工具: {name}"}
 
@@ -290,52 +292,120 @@ class FirefoxBilibiliConnection:
             "text": "\n".join(texts),
         }
 
-    async def _bili_comments(self, bvid: str, num: int) -> dict[str, Any]:
+    async def _bili_comments(
+        self,
+        bvid: str,
+        num: int,
+        *,
+        sort: str = "hot",
+        include_replies: bool = True,
+    ) -> dict[str, Any]:
+        """使用评论主接口分页读取；mode=3 热度，mode=2 最新。"""
+
         try:
             view = await self._get_view(bvid)
         except Exception as exc:
             return {"bvid": bvid, "error": f"{type(exc).__name__}: {exc}", "comments": []}
 
         normalized_num = max(1, min(num, 100))
-        try:
-            payload = await self._xhr_json(
-                f"https://api.bilibili.com/x/v2/reply?type=1&oid={view.aid}&sort=2&ps={normalized_num}&pn=1"
-            )
-        except Exception as exc:
-            return {"bvid": bvid, "error": f"评论接口读取失败: {exc}", "comments": []}
-
-        if int(payload.get("code") or 0) != 0:
-            return {
-                "bvid": bvid,
-                "error": f"评论接口返回 {payload.get('code')}: {payload.get('message') or ''}",
-                "comments": [],
-            }
-
+        normalized_sort = "new" if sort == "new" else "hot"
+        mode = 2 if normalized_sort == "new" else 3
         comments: list[dict[str, Any]] = []
-        for reply in ((payload.get("data") or {}).get("replies") or [])[:normalized_num]:
-            member = reply.get("member") or {}
-            content = reply.get("content") or {}
-            item: dict[str, Any] = {
-                "rpid": reply.get("rpid", 0),
-                "user": member.get("uname", ""),
-                "content": content.get("message", ""),
-                "like": reply.get("like", 0),
-                "reply_count": reply.get("rcount", 0),
-                "time": reply.get("ctime", 0),
-            }
-            sub_replies = (reply.get("replies") or [])[:2]
-            if sub_replies:
-                item["top_replies"] = [
-                    {
-                        "user": (sub.get("member") or {}).get("uname", ""),
-                        "content": (sub.get("content") or {}).get("message", ""),
-                        "like": sub.get("like", 0),
-                    }
-                    for sub in sub_replies
-                ]
-            comments.append(item)
+        seen_rpids: set[str] = set()
+        warning = ""
+        next_cursor: Any = 0
+        page = 1
+        fallback_attempted = False
+        while len(comments) < normalized_num:
+            page_size = min(20, normalized_num - len(comments))
+            try:
+                payload = await self._xhr_json(
+                    "https://api.bilibili.com/x/v2/reply/main"
+                    f"?type=1&oid={view.aid}&mode={mode}&next={next_cursor}&ps={page_size}"
+                )
+            except Exception as exc:
+                if comments:
+                    warning = f"评论第 {page} 页读取失败: {exc}"
+                    break
+                return {"bvid": bvid, "error": f"评论接口读取失败: {exc}", "comments": []}
 
-        return {"bvid": bvid, "count": len(comments), "comments": comments}
+            if int(payload.get("code") or 0) != 0:
+                message = f"评论接口返回 {payload.get('code')}: {payload.get('message') or ''}"
+                if comments:
+                    warning = message
+                    break
+                return {"bvid": bvid, "error": message, "comments": []}
+
+            data = payload.get("data") or {}
+            replies = list(data.get("replies") or [])
+            if page == 1:
+                # 置顶评论可能不在普通回复列表中，优先合并并去重。
+                replies = list(data.get("top_replies") or []) + replies
+            if not replies:
+                if page == 1 and normalized_sort == "new" and not fallback_attempted:
+                    normalized_sort = "hot"
+                    mode = 3
+                    next_cursor = 0
+                    fallback_attempted = True
+                    warning = "最新排序暂无可读评论，已回退热度排序"
+                    continue
+                break
+
+            for reply in replies:
+                if not isinstance(reply, dict):
+                    continue
+                rpid = str(reply.get("rpid") or "")
+                if rpid and rpid in seen_rpids:
+                    continue
+                member = reply.get("member") or {}
+                content = reply.get("content") or {}
+                item: dict[str, Any] = {
+                    "rpid": reply.get("rpid", 0),
+                    "user": member.get("uname", ""),
+                    "content": content.get("message", ""),
+                    "like": reply.get("like", 0),
+                    "reply_count": reply.get("rcount", 0),
+                    "time": reply.get("ctime", 0),
+                }
+                if include_replies:
+                    sub_replies = (reply.get("replies") or [])[:3]
+                    if sub_replies:
+                        item["top_replies"] = [
+                            {
+                                "user": (sub.get("member") or {}).get("uname", ""),
+                                "content": (sub.get("content") or {}).get("message", ""),
+                                "like": sub.get("like", 0),
+                            }
+                            for sub in sub_replies
+                        ]
+                comments.append(item)
+                if rpid:
+                    seen_rpids.add(rpid)
+                if len(comments) >= normalized_num:
+                    break
+
+            if len(comments) >= normalized_num:
+                break
+            cursor = data.get("cursor") or {}
+            if bool(cursor.get("is_end")):
+                break
+            new_cursor = cursor.get("next")
+            if new_cursor is None or new_cursor == next_cursor:
+                break
+            next_cursor = new_cursor
+            page += 1
+
+        result: dict[str, Any] = {
+            "bvid": bvid,
+            "count": len(comments),
+            "total": view.reply,
+            "sort": normalized_sort,
+            "include_replies": include_replies,
+            "comments": comments,
+        }
+        if warning:
+            result["warning"] = warning
+        return result
 
     async def _get_view(self, bvid: str) -> _ViewData:
         normalized_bvid = str(bvid or "").strip()

@@ -7,7 +7,14 @@
 | `bili_search` | 按关键词搜索视频 |
 | `bili_video_info` | 读取视频详情、UP 主和播放数据 |
 | `bili_subtitle` | 读取公开字幕或 AI 字幕原文 |
-| `bili_comments` | 读取热门评论 |
+| `bili_comments` | 分页读取评论区，支持热度/最新排序和楼中楼回复 |
+
+`bili_comments` 参数：
+
+- `bvid`：视频 BV 号
+- `num`：读取条数，最多 100
+- `sort`：`hot`（热度）或 `new`（最新）
+- `include_replies`：是否包含热评下的楼中楼回复
 
 ## 运行
 

@@ -31,6 +31,9 @@ def main() -> int:
     assert component_names == ["bili_recall", "bili_scroll"]
     assert default_config["plugin"]["enabled"] is True
     assert default_config["model"]["ingest_memory"] is True
+    assert default_config["scroll"]["comments_per_video"] >= 12
+    assert default_config["scroll"]["comment_sort"] == "hot"
+    assert default_config["scroll"]["include_comment_replies"] is True
     assert (PROJECT_ROOT / "vendor" / "bilibili_mcp" / "mcp_server.py").is_file()
 
     version = importlib.metadata.version

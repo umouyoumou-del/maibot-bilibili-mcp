@@ -53,7 +53,10 @@ async def main() -> int:
             print("\n=== bili_subtitle ===")
             print(_preview(subtitle_result))
 
-            comments_result = await mcp.call_tool("bili_comments", {"bvid": bvid, "num": 3})
+            comments_result = await mcp.call_tool(
+                "bili_comments",
+                {"bvid": bvid, "num": 3, "sort": "hot", "include_replies": True},
+            )
             print("\n=== bili_comments ===")
             print(_preview(comments_result))
         print("\nMCP smoke test passed.")

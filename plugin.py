@@ -28,7 +28,7 @@ from bilibili_mcp_client import BilibiliMCPClient
 from firefox_bilibili_mcp import FirefoxBilibiliMCPClient
 from scroll_service import BilibiliScrollService, ScrollOptions, ScrollRunResult
 
-PLUGIN_VERSION = "0.5.0"
+PLUGIN_VERSION = "0.6.0"
 MCP_SERVER_PATH = PLUGIN_DIR / "vendor" / "bilibili_mcp" / "mcp_server.py"
 DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
@@ -129,8 +129,16 @@ class ScrollConfig(PluginConfigBase):
     max_age_days: int = Field(default=7, ge=0, le=365, description="只刷最近多少天的视频；0 表示不限")
     max_videos: int = Field(default=6, ge=1, le=20, description="每轮最多读取多少条视频的详情")
     max_highlights: int = Field(default=3, ge=0, le=10, description="模型每轮最多选出多少条回想")
-    include_comments: bool = Field(default=True, description="是否读取热门评论作为判断材料")
-    comments_per_video: int = Field(default=8, ge=0, le=50, description="每条视频读取多少条评论")
+    include_comments: bool = Field(default=True, description="是否读取视频评论区作为模型材料")
+    comments_per_video: int = Field(default=12, ge=0, le=100, description="每条视频最多读取多少条评论")
+    comment_sort: Literal["hot", "new"] = Field(default="hot", description="评论区排序：hot=热度 / new=最新")
+    include_comment_replies: bool = Field(default=True, description="是否读取评论的楼中楼回复")
+    comment_digest_max_items: int = Field(
+        default=4,
+        ge=0,
+        le=10,
+        description="模型最多提炼多少条评论区观察",
+    )
     subtitle_max_chars: int = Field(default=6000, ge=500, le=30000, description="每条字幕最多送入模型多少字符")
     total_material_chars: int = Field(default=24000, ge=4000, le=100000, description="本轮材料总字符上限")
     request_interval_seconds: float = Field(default=0.25, ge=0.0, le=10.0, description="MCP 工具调用间隔（秒）")
@@ -294,6 +302,9 @@ class BilibiliPlugin(MaiBotPlugin):
             max_highlights=self.config.scroll.max_highlights,
             include_comments=self.config.scroll.include_comments,
             comments_per_video=self.config.scroll.comments_per_video,
+            comment_sort=self.config.scroll.comment_sort,
+            include_comment_replies=self.config.scroll.include_comment_replies,
+            comment_digest_max_items=self.config.scroll.comment_digest_max_items,
             subtitle_max_chars=self.config.scroll.subtitle_max_chars,
             total_material_chars=self.config.scroll.total_material_chars,
             model_task=self.config.model.task_name,

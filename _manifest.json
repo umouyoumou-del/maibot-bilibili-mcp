@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "id": "local.maimai.bilibili-plugin",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "name": "麦麦刷B站插件",
   "description": "通过 Firefox MCP 浏览B站，并兼容只读 Bilibili MCP，并调用模型生成 B站回想、写入长期记忆",
   "author": {

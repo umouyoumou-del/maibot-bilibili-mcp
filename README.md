@@ -24,14 +24,15 @@ MaiBot（MaiMai Bot）插件：通过 **Firefox MCP（MCP Browser Kit）** 打�
   - 打开 B 站搜索页，读取搜索结果
   - 在 Firefox 的 B 站页面上下文中读取视频详情
   - 读取播放器公开字幕/AI 字幕
-  - 读取热门评论
+  - 分页读取视频评论区，支持热度/最新排序和楼中楼回复
   - 自动复用 Firefox 当前的 B 站登录态
 - 模型自主选题：
   - 读取 MaiBot 的昵称、人格、行为准则和说话风格
   - 根据人设、兴趣画像、最近看过的视频和近期回想规划搜索关键词
   - 从搜索结果候选中挑选要细读的视频
   - 规划失败时自动回退到配置关键词，选片失败时自动回退到按时间/播放量排序
-- 结构化输出：`summary`、`highlights`、`recall_cues`
+- 结构化输出：`summary`、`highlights`、`comment_digest`、`recall_cues`
+- 模型会明确阅读评论区，并把观众反应、补充信息、争议或共识写入「评论区观察」
 - 生成 Markdown 回想并发送到当前聊天流
 - 通过 `memory.ingest_summary` 写入 A_Memorix 长期记忆
 - 使用 `seen.json` 避免连续多轮重复读取相同视频
@@ -58,9 +59,9 @@ flowchart TD
 1. 根据 MaiBot 人设、兴趣画像和近期观看记录决定本轮搜索方向。
 2. 通过 Firefox 搜索 B 站，过滤 `seen.json` 中已看过的视频，并按发布时间/播放量排序。
 3. 让模型从候选池中挑出最值得细读的视频。
-4. 在浏览器页面上下文读取视频详情、字幕和评论。
-5. 对材料做截断与提示注入防护后交给模型。
-6. 解析模型返回的 JSON，生成并发送 Markdown 回想。
+4. 在浏览器页面上下文读取视频详情、字幕，并分页读取评论区和楼中楼回复。
+5. 优先为每条视频保留评论区材料，再做截断与提示注入防护后交给模型。
+6. 解析模型返回的 JSON，生成包含「评论区观察」的 Markdown 回想。
 7. 保存结构化产物；如果启用长期记忆，再写入 A_Memorix。
 
 ## 环境要求
@@ -219,12 +220,32 @@ page_load_timeout = 25.0
 | `scroll.max_age_days` | `7` | 只挑选最近多少天的视频；`0` 表示不限 |
 | `scroll.max_videos` | `6` | 每轮最多读取多少条视频详情 |
 | `scroll.max_highlights` | `3` | 模型最多输出多少条重点回想 |
-| `scroll.include_comments` | `true` | 是否读取热门评论 |
-| `scroll.comments_per_video` | `8` | 每条视频最多读取多少条评论 |
+| `scroll.include_comments` | `true` | 是否读取视频评论区 |
+| `scroll.comments_per_video` | `12` | 每条视频最多读取多少条评论，最多支持 100 条分页读取 |
+| `scroll.comment_sort` | `hot` | `hot`=热度 / `new`=最新 |
+| `scroll.include_comment_replies` | `true` | 是否读取热评下的楼中楼回复 |
+| `scroll.comment_digest_max_items` | `4` | 模型最多输出几条评论区观察 |
 | `scroll.subtitle_max_chars` | `6000` | 单条字幕送入模型的字符上限 |
 | `scroll.total_material_chars` | `24000` | 本轮材料总字符上限，防止 token 爆炸 |
 | `scroll.request_interval_seconds` | `0.25` | MCP 工具调用间隔 |
 | `scroll.style_prompt` | `用简洁、自然、像在分享刚刚刷到内容的口吻` | 回想表达风格 |
+
+### 评论区读取
+
+```toml
+[scroll]
+include_comments = true
+comments_per_video = 12
+comment_sort = "hot"
+include_comment_replies = true
+comment_digest_max_items = 4
+```
+
+- Firefox 后端和内置 Bilibili API MCP 都会分页读取评论区，最多可读取 100 条。
+- 评论材料包含用户名、正文、点赞数、回复数、发布时间和热评下的楼中楼回复。
+- 评论区会优先进入模型上下文，避免被长字幕挤掉；超出 `total_material_chars` 的部分仍会截断。
+- 模型输出中的 `comment_digest` 会渲染成 Markdown 的「评论区观察」，并写入 JSON 和长期记忆。
+- 原始评论样本会保存在每轮 JSON 的 `materials[].comments` 中，方便排查模型是否真的读到了评论。
 
 ### 模型与长期记忆
 
@@ -259,7 +280,7 @@ data_source = "bilibili"
 | `bili_search` | 搜索视频 |
 | `bili_video_info` | 读取视频详情 |
 | `bili_subtitle` | 读取公开字幕/AI 字幕 |
-| `bili_comments` | 读取热门评论 |
+| `bili_comments` | 分页读取评论区，支持热度/最新排序和楼中楼回复 |
 
 匿名状态通常即可搜索、读取视频信息和公开评论。部分字幕或受限接口可能需要登录凭证。若需要，可在 MaiBot 分配给插件的插件数据目录中放置 `bili_credential.json`，或通过 `bilibili.credential_file` 指定路径：
 
@@ -291,7 +312,7 @@ data_source = "bilibili"
 
 - `seen.json`：最近看过的 BV 号与标题，默认保留 60 天
 - `*.md`：可直接阅读/发送的 Markdown 回想
-- `*.json`：结构化回想、选片计划、模型名和本轮材料摘要
+- `*.json`：结构化回想、选片计划、模型名、评论区观察和本轮评论原文样本
 
 如果想重新看到已经看过的视频，可以备份后删除 `seen.json`，但这样也可能导致重复内容。
 

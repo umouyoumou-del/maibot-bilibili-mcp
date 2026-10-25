@@ -32,7 +32,7 @@ def test_default_config_is_valid() -> None:
     validated_config = BilibiliPluginConfig.model_validate(default_config)
 
     assert validated_config.plugin.enabled is True
-    assert validated_config.plugin.config_version == "0.5.0"
+    assert validated_config.plugin.config_version == "0.6.0"
     assert validated_config.bilibili.request_timeout == 45.0
     assert validated_config.scroll.data_source == "firefox"
     assert validated_config.scroll.model_directed is True
@@ -41,6 +41,10 @@ def test_default_config_is_valid() -> None:
     assert validated_config.firefox.mcp_url == "http://127.0.0.1:21082/mcp"
     assert validated_config.scroll.keywords == ["MaiBot", "MaiMai", "AI Agent"]
     assert validated_config.scroll.max_age_days == 7
+    assert validated_config.scroll.comments_per_video == 12
+    assert validated_config.scroll.comment_sort == "hot"
+    assert validated_config.scroll.include_comment_replies is True
+    assert validated_config.scroll.comment_digest_max_items == 4
     assert validated_config.model.ingest_memory is True
 
 
@@ -64,7 +68,7 @@ def test_manifest_is_valid_json_and_matches_project_version() -> None:
 
     assert manifest["manifest_version"] == 2
     assert manifest["id"] == "local.maimai.bilibili-plugin"
-    assert manifest["version"] == "0.5.0"
+    assert manifest["version"] == "0.6.0"
     assert manifest["host_application"]["max_version"] == "1.99.99"
     assert manifest["sdk"]["min_version"] == "2.8.0"
     assert {"llm.generate", "memory.ingest_summary", "send.text"} <= set(manifest["capabilities"])

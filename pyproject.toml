@@ -1,6 +1,6 @@
 [project]
 name = "maimai-bilibili-plugin"
-version = "0.5.0"
+version = "0.6.0"
 description = "MaiBot 插件：通过 MCP 刷B站并调用模型生成回想"
 readme = "README.md"
 license = { text = "MIT" }

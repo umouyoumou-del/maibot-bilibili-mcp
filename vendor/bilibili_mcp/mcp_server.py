@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any
 
 import aiohttp
-from bilibili_api import Credential, comment, search, video
+from bilibili_api import Credential, search, video
 from bilibili_api.utils import network
 from bilibili_api.utils.network import Api
 from mcp.server.fastmcp import FastMCP
@@ -31,6 +31,10 @@ CREDENTIAL_FILE = Path(
     os.environ.get("BILI_CREDENTIAL_FILE", str(Path(__file__).with_name("bili_credential.json")))
 ).expanduser()
 REQUEST_TIMEOUT_SECONDS = float(os.environ.get("BILI_REQUEST_TIMEOUT", "15") or "15")
+COMMENT_USER_AGENT = (
+    os.environ.get("BILI_USER_AGENT", "").strip()
+    or "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+)
 if user_agent := os.environ.get("BILI_USER_AGENT", "").strip():
     network.HEADERS["User-Agent"] = user_agent
 
@@ -267,8 +271,21 @@ async def bili_subtitle(bvid: str) -> str:
 
 
 @mcp.tool()
-async def bili_comments(bvid: str, num: int = 30) -> str:
-    """读取视频热门评论。"""
+async def bili_comments(
+    bvid: str,
+    num: int = 30,
+    sort: str = "hot",
+    include_replies: bool = True,
+) -> str:
+    """分页读取视频评论区，可选择热度/最新排序和楼中楼回复。"""
+
+    normalized_num = max(1, min(int(num or 30), 100))
+    normalized_sort = "new" if str(sort).lower() == "new" else "hot"
+    mode = 2 if normalized_sort == "new" else 3
+    comments: list[dict[str, Any]] = []
+    seen_rpids: set[str] = set()
+    warning = ""
+    fetch_error = ""
 
     try:
         _, info, credential = await _get_video_with_info(bvid)
@@ -276,60 +293,114 @@ async def bili_comments(bvid: str, num: int = 30) -> str:
         if not aid:
             return _dump({"bvid": str(bvid or ""), "error": "无法获取 aid"})
 
-        normalized_num = max(1, min(int(num or 30), 100))
-        comments: list[dict[str, Any]] = []
-        fetch_error = ""
+        cookies = {key: value for key, value in credential.get_cookies().items() if value}
+        headers = {
+            "User-Agent": COMMENT_USER_AGENT,
+            "Referer": f"https://www.bilibili.com/video/{str(bvid or '').strip()}",
+        }
+        timeout = aiohttp.ClientTimeout(total=REQUEST_TIMEOUT_SECONDS)
+        next_cursor: Any = 0
         page = 1
-        while len(comments) < normalized_num:
-            try:
-                response = await comment.get_comments(
-                    oid=aid,
-                    type_=comment.CommentResourceType.VIDEO,
-                    page_index=page,
-                    order=comment.OrderType.LIKE,
-                    credential=credential,
-                )
-            except Exception as exc:
-                fetch_error = f"{type(exc).__name__}: {exc}"
-                break
-
-            replies = response.get("replies") or []
-            if not replies:
-                break
-
-            for reply in replies:
-                member = reply.get("member") or {}
-                content = reply.get("content") or {}
-                comment_item: dict[str, Any] = {
-                    "rpid": reply.get("rpid", 0),
-                    "user": member.get("uname", ""),
-                    "content": content.get("message", ""),
-                    "like": reply.get("like", 0),
-                    "reply_count": reply.get("rcount", 0),
-                    "time": reply.get("ctime", 0),
+        fallback_attempted = False
+        async with aiohttp.ClientSession(timeout=timeout, headers=headers, cookies=cookies) as session:
+            while len(comments) < normalized_num:
+                page_size = min(20, normalized_num - len(comments))
+                url = "https://api.bilibili.com/x/v2/reply/main"
+                params = {
+                    "type": 1,
+                    "oid": aid,
+                    "mode": mode,
+                    "next": next_cursor,
+                    "ps": page_size,
                 }
-                sub_replies = (reply.get("replies") or [])[:2]
-                if sub_replies:
-                    comment_item["top_replies"] = [
-                        {
-                            "user": (sub.get("member") or {}).get("uname", ""),
-                            "content": (sub.get("content") or {}).get("message", ""),
-                            "like": sub.get("like", 0),
-                        }
-                        for sub in sub_replies
-                    ]
-                comments.append(comment_item)
-                if len(comments) >= normalized_num:
+                try:
+                    async with session.get(url, params=params) as response:
+                        response.raise_for_status()
+                        result = await response.json(content_type=None)
+                except Exception as exc:
+                    fetch_error = f"评论第 {page} 页读取失败: {type(exc).__name__}: {exc}"
                     break
 
-            page += 1
-            await asyncio.sleep(0.3)
+                if int(result.get("code") or 0) != 0:
+                    fetch_error = f"评论接口返回 {result.get('code')}: {result.get('message') or ''}"
+                    break
+
+                data = result.get("data") or {}
+                replies = list(data.get("replies") or [])
+                if page == 1:
+                    replies = list(data.get("top_replies") or []) + replies
+                if not replies:
+                    if page == 1 and normalized_sort == "new" and not fallback_attempted:
+                        normalized_sort = "hot"
+                        mode = 3
+                        next_cursor = 0
+                        fallback_attempted = True
+                        warning = "最新排序暂无可读评论，已回退热度排序"
+                        continue
+                    break
+
+                for reply in replies:
+                    if not isinstance(reply, dict):
+                        continue
+                    rpid = str(reply.get("rpid") or "")
+                    if rpid and rpid in seen_rpids:
+                        continue
+                    member = reply.get("member") or {}
+                    content = reply.get("content") or {}
+                    comment_item: dict[str, Any] = {
+                        "rpid": reply.get("rpid", 0),
+                        "user": member.get("uname", ""),
+                        "content": content.get("message", ""),
+                        "like": reply.get("like", 0),
+                        "reply_count": reply.get("rcount", 0),
+                        "time": reply.get("ctime", 0),
+                    }
+                    if include_replies:
+                        sub_replies = (reply.get("replies") or [])[:3]
+                        if sub_replies:
+                            comment_item["top_replies"] = [
+                                {
+                                    "user": (sub.get("member") or {}).get("uname", ""),
+                                    "content": (sub.get("content") or {}).get("message", ""),
+                                    "like": sub.get("like", 0),
+                                }
+                                for sub in sub_replies
+                            ]
+                    comments.append(comment_item)
+                    if rpid:
+                        seen_rpids.add(rpid)
+                    if len(comments) >= normalized_num:
+                        break
+
+                if len(comments) >= normalized_num:
+                    break
+                cursor = data.get("cursor") or {}
+                if bool(cursor.get("is_end")):
+                    break
+                new_cursor = cursor.get("next")
+                if new_cursor is None or new_cursor == next_cursor:
+                    break
+                next_cursor = new_cursor
+                page += 1
+                await asyncio.sleep(0.3)
     except Exception as exc:
         return _dump({"bvid": str(bvid or ""), "error": f"{type(exc).__name__}: {exc}", "comments": []})
 
-    payload: dict[str, Any] = {"bvid": str(bvid or ""), "count": len(comments), "comments": comments}
+    if not comments and fetch_error:
+        return _dump({"bvid": str(bvid or ""), "error": fetch_error, "comments": []})
+
+    payload: dict[str, Any] = {
+        "bvid": str(bvid or ""),
+        "count": len(comments),
+        "total": int((info.get("stat") or {}).get("reply") or 0),
+        "sort": normalized_sort,
+        "include_replies": include_replies,
+        "comments": comments,
+    }
+    if warning:
+        payload["warning"] = warning
     if fetch_error:
-        payload["error"] = fetch_error
+        payload["warning"] = fetch_error
     return _dump(payload)
 
 

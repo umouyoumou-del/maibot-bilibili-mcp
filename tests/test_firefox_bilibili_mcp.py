@@ -1,5 +1,10 @@
 """Firefox MCP 适配器的纯离线单元测试。"""
 
+from types import SimpleNamespace
+from typing import Any
+
+import pytest
+
 from firefox_bilibili_mcp import FirefoxBilibiliConnection, FirefoxBilibiliMCPClient
 
 
@@ -42,3 +47,57 @@ def test_pick_subtitle_prefers_chinese_ai_subtitle() -> None:
 
     assert target is not None
     assert target["lan"] == "ai-zh"
+
+
+@pytest.mark.asyncio
+async def test_comments_paginate_sort_and_include_replies() -> None:
+    """请求 25 条最新评论时应翻两页，并保留楼中楼回复。"""
+
+    requested_urls: list[str] = []
+
+    def make_reply(index: int) -> dict[str, Any]:
+        return {
+            "rpid": index,
+            "member": {"uname": f"用户{index}"},
+            "content": {"message": f"评论内容{index}"},
+            "like": index,
+            "rcount": 1,
+            "ctime": 1792920000 + index,
+            "replies": [
+                {
+                    "member": {"uname": f"回复者{index}"},
+                    "content": {"message": f"楼中楼{index}"},
+                    "like": 1,
+                }
+            ],
+        }
+
+    class StubConnection(FirefoxBilibiliConnection):
+        async def _get_view(self, bvid: str) -> Any:
+            del bvid
+            return SimpleNamespace(aid=12345, reply=42)
+
+        async def _xhr_json(self, url: str) -> dict[str, Any]:
+            requested_urls.append(url)
+            page = 2 if "next=83" in url else 1
+            count = 5 if page == 2 else 20
+            offset = 20 if page == 2 else 0
+            return {
+                "code": 0,
+                "data": {
+                    "replies": [make_reply(offset + index) for index in range(1, count + 1)],
+                    "cursor": {"next": 83, "is_end": page == 2},
+                },
+            }
+
+    connection = StubConnection(kit=object(), browser_id="firefox-1", window_id="window-1")
+    result = await connection._bili_comments("BV1Test000001", 25, sort="new", include_replies=True)
+
+    assert result["count"] == 25
+    assert result["total"] == 42
+    assert result["sort"] == "new"
+    assert len(requested_urls) == 2
+    assert "mode=2" in requested_urls[0]
+    assert "next=0" in requested_urls[0]
+    assert "next=83" in requested_urls[1]
+    assert result["comments"][0]["top_replies"][0]["content"] == "楼中楼1"

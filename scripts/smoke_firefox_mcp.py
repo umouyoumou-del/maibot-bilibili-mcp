@@ -42,7 +42,10 @@ async def main() -> int:
             subtitle = await browser.call_tool("bili_subtitle", {"bvid": bvid})
             print("\n=== Firefox MCP / bili_subtitle ===")
             print(preview(subtitle))
-            comments = await browser.call_tool("bili_comments", {"bvid": bvid, "num": 3})
+            comments = await browser.call_tool(
+                "bili_comments",
+                {"bvid": bvid, "num": 3, "sort": "hot", "include_replies": True},
+            )
             print("\n=== Firefox MCP / bili_comments ===")
             print(preview(comments))
         print("\nFirefox MCP smoke test passed.")
