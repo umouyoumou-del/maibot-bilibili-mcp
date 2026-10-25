@@ -1,0 +1,56 @@
+# 将本文件复制为 config.toml 后按需修改。
+# MaiBot 插件运行时会自动补齐缺失的默认配置。
+[plugin]
+enabled = true
+config_version = "0.5.0"
+
+[bilibili]
+# 仅在 data_source = "bilibili" 时使用；可选 B站 Cookie 凭证文件。
+credential_file = "bili_credential.json"
+request_timeout = 45.0
+# user_agent = "Mozilla/5.0 ..."
+
+[firefox]
+# 常驻 Browser Kit HTTP MCP（由 MCPBrowserKit 启动脚本提供）
+mcp_url = "http://127.0.0.1:21082/mcp"
+call_timeout_seconds = 120.0
+page_load_timeout = 25.0
+
+[scroll]
+# firefox = 通过 Firefox MCP 浏览B站（默认）
+# bilibili = 使用内置 Bilibili API MCP
+data_source = "firefox"
+# 让模型自主决定搜索关键词和从候选中选片
+model_directed = true
+model_select_candidates = true
+interest_profile = "MaiBot、AI Agent、独立开发、开源工具、B站社区文化"
+use_persona = true
+planning_max_keywords = 3
+candidate_pool_size = 24
+# 仅在模型未启用自主规划时作为默认关键词
+keywords = ["MaiBot", "MaiMai", "AI Agent"]
+search_order = "pubdate"
+search_per_keyword = 6
+# 只刷最近多少天的视频；0 = 不限
+max_age_days = 7
+max_videos = 6
+max_highlights = 3
+include_comments = true
+comments_per_video = 8
+subtitle_max_chars = 6000
+total_material_chars = 24000
+request_interval_seconds = 0.25
+# 0 = 只手动触发；例如 60 = 每 60 分钟自动刷一轮
+auto_interval_minutes = 0
+# 自动刷发到哪个聊天流；留空则只写文件和长期记忆，不主动发消息
+target_stream_id = ""
+style_prompt = "用简洁、自然、像在分享刚刚刷到内容的口吻"
+
+[model]
+# MaiBot 模型任务名；也可以填具体模型名到 model_name
+task_name = "utils"
+model_name = ""
+temperature = 0.4
+max_tokens = 1800
+ingest_memory = true
+memory_chat_id = "bilibili"

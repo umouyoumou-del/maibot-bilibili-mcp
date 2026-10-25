@@ -1,0 +1,24 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+# 插件运行时文件
+config.toml
+bili_credential.json
+data/
+logs/
+*.log
+*.tmp
+
+# 本地环境变量
+.env
+.env.*
+!.env.example
+
+# 编辑器
+.vscode/
+.idea/
+.DS_Store
