@@ -29,6 +29,7 @@ MaiBot（MaiMai Bot）插件：通过 **Firefox MCP（MCP Browser Kit）** 打�
 - 模型自主选题：
   - 读取 MaiBot 的昵称、人格、行为准则和说话风格
   - 根据人设、兴趣画像、最近看过的视频和近期回想规划搜索关键词
+
   - 从搜索结果候选中挑选要细读的视频
   - 规划失败时自动回退到配置关键词，选片失败时自动回退到按时间/播放量排序
 - 结构化输出：`summary`、`highlights`、`comment_digest`、`recall_cues`
@@ -424,5 +425,5 @@ target_stream_id = "<有效的聊天流 ID>"
 更多署名信息见 [`NOTICE.md`](NOTICE.md)。
 
 ---
-
+[![M8ven Score](https://m8ven.ai/badge/mcp/umouyoumou-del-maibot-bilibili-mcp-7wt7jr?v=f876294757ef5552d2253c36a747b054)](https://m8ven.ai/mcp/umouyoumou-del-maibot-bilibili-mcp-7wt7jr?s=readme)
 如果这个插件对你有帮助，欢迎在 [Issues](https://github.com/umouyoumou-del/maibot-bilibili-mcp/issues) 中反馈问题或提出新想法。
